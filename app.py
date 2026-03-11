@@ -105,12 +105,67 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ── Auto-Train if model files missing ─────────────────────────────────────────
+def auto_train():
+    """Train and save model automatically if model.pkl doesn't exist."""
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix
+
+    np.random.seed(42)
+    n_legit, n_fraud = 28000, 492
+
+    legit = {'Time': np.random.uniform(0, 172800, n_legit),
+             'Amount': np.abs(np.random.exponential(88, n_legit)), 'Class': 0}
+    fraud = {'Time': np.random.uniform(0, 172800, n_fraud),
+             'Amount': np.abs(np.random.exponential(122, n_fraud)), 'Class': 1}
+    for v in range(1, 29):
+        legit[f'V{v}'] = np.random.normal(0, 1, n_legit)
+        fraud[f'V{v}'] = np.random.normal(0 if v % 2 == 0 else -2, 1.5, n_fraud)
+
+    df = pd.concat([pd.DataFrame(legit), pd.DataFrame(fraud)]).sample(frac=1, random_state=42).reset_index(drop=True)
+
+    features = [c for c in df.columns if c != 'Class']
+    X = df[features].values
+    y = df['Class'].values
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42, stratify=y)
+
+    model = RandomForestClassifier(n_estimators=100, max_depth=10,
+                                   class_weight='balanced', random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+
+    y_pred  = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
+    acc     = accuracy_score(y_test, y_pred)
+    roc_auc = roc_auc_score(y_test, y_proba)
+    cm      = confusion_matrix(y_test, y_pred)
+
+    top_feats = sorted(zip(features, model.feature_importances_), key=lambda x: x[1], reverse=True)[:10]
+
+    metrics = {
+        'accuracy': round(acc * 100, 2), 'roc_auc': round(roc_auc, 4),
+        'total_samples': int(len(df)), 'fraud_count': int((df.Class == 1).sum()),
+        'legit_count': int((df.Class == 0).sum()), 'fraud_rate': round(df.Class.mean() * 100, 2),
+        'features': features,
+        'top_features': [{'feature': f, 'importance': round(i, 4)} for f, i in top_feats],
+        'confusion_matrix': cm.tolist()
+    }
+
+    with open('model.pkl', 'wb') as f: pickle.dump(model, f)
+    with open('scaler.pkl', 'wb') as f: pickle.dump(scaler, f)
+    with open('metrics.json', 'w') as f: json.dump(metrics, f, indent=2)
+
+
 # ── Load Model & Metrics ──────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     if not os.path.exists("model.pkl"):
-        st.error("❌ model.pkl not found. Run `python train_model.py` first!")
-        st.stop()
+        with st.spinner("⏳ First launch — training AI model... (takes ~30 seconds)"):
+            auto_train()
     with open("model.pkl", "rb") as f:
         model = pickle.load(f)
     with open("scaler.pkl", "rb") as f:
