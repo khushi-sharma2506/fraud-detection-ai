@@ -203,7 +203,7 @@ with st.sidebar:
         st.caption(f"Trained on {metrics['total_samples']:,} transactions")
 
     st.divider()
-    st.caption("Built by [Your Name]")
+    st.caption("Built by Khushi Sharma | B.Tech AIML")
     st.caption("Stack: Python · Scikit-learn · Streamlit · Plotly")
     st.caption("Dataset: Kaggle Credit Card Fraud")
 
